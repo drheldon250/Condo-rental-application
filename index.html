@@ -393,6 +393,7 @@
             <div id="configure-id-section" class="space-y-6">
                 <h2 class="text-2xl font-semibold text-gray-700 pb-2 border-b-2 border-indigo-400 text-center">Landlord Configuration</h2>
                 <p class="text-center text-gray-600">Enter your user ID here to save all applications to your account. You can find your ID at the bottom of the page.</p>
+                <p id="user-id-display" class="text-center text-sm font-medium text-indigo-600 my-4"></p>
                 <div class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
                     <input type="text" id="landlord-id-input" placeholder="Paste your User ID here..." class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
                     <button onclick="setLandlordId(event)" class="w-full sm:w-auto px-6 py-2 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 transition duration-300">
@@ -405,7 +406,6 @@
             <!-- Section to display submitted applications -->
             <div id="submitted-applications-section" class="mt-12 space-y-6 hidden">
                 <h2 class="text-3xl font-bold text-gray-800 text-center">Submitted Applications</h2>
-                <div id="user-id-display" class="text-center text-sm text-gray-500 mb-4"></div>
                 <div id="applications-list" class="space-y-8 mt-4">
                     <p class="text-center text-gray-500 italic">No applications received yet.</p>
                 </div>
