@@ -1,0 +1,385 @@
+!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Condo Rental Application</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set Firebase logging level for debugging
+        setLogLevel('debug');
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        let userId = null;
+
+        // Message box functions
+        window.showMessageBox = (message, isSuccess = true) => {
+            const box = document.getElementById('message-box');
+            const icon = box.querySelector('svg');
+            const h3 = box.querySelector('h3');
+            const p = box.querySelector('p.text-gray-600');
+            
+            h3.textContent = isSuccess ? "Success!" : "Error!";
+            p.textContent = message;
+
+            if (isSuccess) {
+                icon.classList.remove('text-red-500');
+                icon.classList.add('text-green-500');
+                icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />`;
+            } else {
+                icon.classList.remove('text-green-500');
+                icon.classList.add('text-red-500');
+                icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />`;
+            }
+            box.style.display = 'flex';
+        };
+
+        window.hideMessageBox = () => {
+            document.getElementById('message-box').style.display = 'none';
+        };
+
+        // Function to create a document in Firestore
+        const createApplication = async (data) => {
+            if (!userId) {
+                showMessageBox("Authentication failed. Please try refreshing the page.", false);
+                return;
+            }
+            try {
+                const applicationsCollection = collection(db, `artifacts/${appId}/users/${userId}/applications`);
+                await addDoc(applicationsCollection, {
+                    ...data,
+                    timestamp: new Date()
+                });
+                showMessageBox("Application submitted successfully!");
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                showMessageBox("Failed to submit application. Please check the console for errors.", false);
+            }
+        };
+
+        // Function to delete a document from Firestore
+        window.deleteApplication = async (docId) => {
+            if (!userId) {
+                console.error("User not authenticated.");
+                return;
+            }
+            try {
+                const docRef = doc(db, `artifacts/${appId}/users/${userId}/applications`, docId);
+                await deleteDoc(docRef);
+                console.log("Document successfully deleted!");
+            } catch (e) {
+                console.error("Error removing document: ", e);
+            }
+        };
+
+        // Function to generate a PDF for a single application
+        window.generatePdf = (docId) => {
+            const element = document.getElementById(docId);
+            if (!element) {
+                showMessageBox("Could not find the application to generate a PDF.", false);
+                return;
+            }
+
+            const options = {
+                filename: `Rental_Application_${docId}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+            };
+
+            // Clone the element to remove the buttons from the PDF
+            const pdfContent = element.cloneNode(true);
+            const buttons = pdfContent.querySelectorAll('.pdf-exclude');
+            buttons.forEach(btn => btn.remove());
+
+            html2pdf().from(pdfContent).set(options).save();
+        };
+
+        // Listen for new applications and display them
+        const setupRealtimeListener = () => {
+            if (!userId) {
+                console.log("User not authenticated, skipping listener setup.");
+                return;
+            }
+
+            const applicationsCollection = collection(db, `artifacts/${appId}/users/${userId}/applications`);
+            onSnapshot(applicationsCollection, (snapshot) => {
+                const applicationsList = document.getElementById('applications-list');
+                if (!applicationsList) return;
+                
+                applicationsList.innerHTML = ''; // Clear existing applications
+
+                if (snapshot.empty) {
+                    applicationsList.innerHTML = `<p class="text-center text-gray-500 italic">No applications received yet.</p>`;
+                    return;
+                }
+                
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const card = document.createElement('div');
+                    card.className = "bg-gray-100 p-6 rounded-lg shadow-inner border border-gray-200 space-y-2 relative";
+                    card.id = doc.id; // Set the ID for PDF generation
+                    
+                    card.innerHTML = `
+                        <h3 class="font-bold text-gray-800 text-lg">${data.fullName}</h3>
+                        <p><span class="font-semibold">Email:</span> ${data.email}</p>
+                        <p><span class="font-semibold">Phone:</span> ${data.phone}</p>
+                        <p><span class="font-semibold">Employer:</span> ${data.employer} (${data.jobTitle})</p>
+                        <p><span class="font-semibold">Monthly Income:</span> $${data.monthlyIncome}</p>
+                        <p><span class="font-semibold">Occupants:</span> ${data.occupants}</p>
+                        <p><span class="font-semibold">Pets:</span> ${data.pets}</p>
+                        <p><span class="font-semibold">References:</span></p>
+                        <ul class="list-disc list-inside ml-4 text-gray-700">
+                            <li>${data.ref1Name || 'N/A'} (${data.ref1Relationship || 'N/A'}) - ${data.ref1Phone || 'N/A'}</li>
+                            <li>${data.ref2Name || 'N/A'} (${data.ref2Relationship || 'N/A'}) - ${data.ref2Phone || 'N/A'}</li>
+                        </ul>
+                        <p class="text-sm italic text-gray-500 mt-2">Submitted on: ${data.timestamp.toDate().toLocaleString()}</p>
+                        <div class="flex space-x-2 mt-4 pdf-exclude">
+                            <button onclick="deleteApplication('${doc.id}')" class="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-300">
+                                Delete
+                            </button>
+                            <button onclick="generatePdf('${doc.id}')" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-300">
+                                Download PDF
+                            </button>
+                        </div>
+                    `;
+                    applicationsList.appendChild(card);
+                });
+            });
+        };
+
+        // Authentication State Listener
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('user-id-display').textContent = `Your User ID: ${userId}`;
+                console.log("User authenticated with UID:", userId);
+                setupRealtimeListener();
+            } else {
+                console.log("No user signed in. Attempting custom token sign-in.");
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Firebase authentication failed:", error);
+                }
+            }
+        });
+
+        // Form submission handler
+        window.handleFormSubmission = (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const data = {
+                fullName: form['full-name'].value,
+                email: form.email.value,
+                phone: form.phone.value,
+                currentAddress: form['current-address'].value,
+                employer: form.employer.value,
+                monthlyIncome: form['monthly-income'].value,
+                jobTitle: form['job-title'].value,
+                ref1Name: form['ref1-name'].value,
+                ref1Relationship: form['ref1-relationship'].value,
+                ref1Phone: form['ref1-phone'].value,
+                ref1Email: form['ref1-email'].value,
+                ref2Name: form['ref2-name'].value,
+                ref2Relationship: form['ref2-relationship'].value,
+                ref2Phone: form['ref2-phone'].value,
+                ref2Email: form['ref2-email'].value,
+                occupants: form.occupants.value,
+                pets: form.pets.value,
+                description: form.description.value
+            };
+            createApplication(data);
+        };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        #message-box {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="container mx-auto max-w-4xl bg-white p-6 sm:p-10 rounded-xl shadow-lg border border-gray-200">
+        <h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-2">Condo Rental Application</h1>
+        <p class="text-center text-gray-500 mb-8">Please complete this form to apply for the rental unit.</p>
+        <p class="text-center text-gray-500 mb-8 font-medium">To collect applications, simply share this page! All submitted data will appear below in real-time for you to review.</p>
+
+        <!-- The main form -->
+        <form id="rental-form" class="space-y-8" onsubmit="handleFormSubmission(event)">
+            
+            <!-- Personal Information Section -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-semibold text-gray-700 pb-2 border-b-2 border-indigo-400">Personal Information</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div>
+                        <label for="full-name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                        <input type="text" id="full-name" name="full-name" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                        <input type="email" id="email" name="email" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                    <div>
+                        <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                        <input type="tel" id="phone" name="phone" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                    <div>
+                        <label for="current-address" class="block text-sm font-medium text-gray-700 mb-1">Current Address</label>
+                        <input type="text" id="current-address" name="current-address" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Employment Information Section -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-semibold text-gray-700 pb-2 border-b-2 border-indigo-400">Employment Information</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div>
+                        <label for="employer" class="block text-sm font-medium text-gray-700 mb-1">Current Employer</label>
+                        <input type="text" id="employer" name="employer" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                    <div>
+                        <label for="monthly-income" class="block text-sm font-medium text-gray-700 mb-1">Monthly Gross Income</label>
+                        <input type="number" id="monthly-income" name="monthly-income" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="job-title" class="block text-sm font-medium text-gray-700 mb-1">Job Title / Position</label>
+                        <input type="text" id="job-title" name="job-title" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    </div>
+                </div>
+            </div>
+
+            <!-- References Section -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-semibold text-gray-700 pb-2 border-b-2 border-indigo-400">References <span class="text-base text-gray-500 font-normal">(Optional)</span></h2>
+                
+                <!-- Reference 1 -->
+                <div class="space-y-4 rounded-lg border border-gray-200 p-4">
+                    <h3 class="font-medium text-gray-700">Reference 1</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div>
+                            <label for="ref1-name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                            <input type="text" id="ref1-name" name="ref1-name" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref1-relationship" class="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                            <input type="text" id="ref1-relationship" name="ref1-relationship" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref1-phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                            <input type="tel" id="ref1-phone" name="ref1-phone" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref1-email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                            <input type="email" id="ref1-email" name="ref1-email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reference 2 -->
+                <div class="space-y-4 rounded-lg border border-gray-200 p-4">
+                    <h3 class="font-medium text-gray-700">Reference 2</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div>
+                            <label for="ref2-name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                            <input type="text" id="ref2-name" name="ref2-name" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref2-relationship" class="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                            <input type="text" id="ref2-relationship" name="ref2-relationship" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref2-phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                            <input type="tel" id="ref2-phone" name="ref2-phone" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                        <div>
+                            <label for="ref2-email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                            <input type="email" id="ref2-email" name="ref2-email" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Additional Information Section -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-semibold text-gray-700 pb-2 border-b-2 border-indigo-400">Additional Information</h2>
+                <div>
+                    <label for="occupants" class="block text-sm font-medium text-gray-700 mb-1">Number of Occupants (including yourself)</label>
+                    <input type="number" id="occupants" name="occupants" required class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                </div>
+                <div>
+                    <label for="pets" class="block text-sm font-medium text-gray-700 mb-1">Do you have any pets?</label>
+                    <select id="pets" name="pets" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Please provide a brief description of yourself or your household.</label>
+                    <textarea id="description" name="description" rows="4" class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150"></textarea>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="flex justify-center">
+                <button type="submit" class="w-full sm:w-auto px-8 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-300">
+                    Submit Application
+                </button>
+            </div>
+        </form>
+
+        <!-- Section to display submitted applications -->
+        <div class="mt-12 space-y-6">
+            <h2 class="text-3xl font-bold text-gray-800 text-center">Submitted Applications</h2>
+            <div id="user-id-display" class="text-center text-sm text-gray-500 mb-4"></div>
+            <div id="applications-list" class="space-y-8 mt-4">
+                <p class="text-center text-gray-500 italic">No applications received yet.</p>
+            </div>
+        </div>
+
+        <!-- Message Box for success message -->
+        <div id="message-box" class="flex flex-col items-center">
+            <svg class="h-16 w-16 text-green-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 class="text-lg font-bold text-gray-800 mb-2"></h3>
+            <p class="text-gray-600 mb-4"></p>
+            <button onclick="hideMessageBox()" class="px-6 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition duration-300">Close</button>
+        </div>
+
+    </div>
