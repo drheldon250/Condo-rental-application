@@ -26,6 +26,7 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
         let userId = null;
+        let landlordUserId = null;
 
         // Message box functions
         window.showMessageBox = (message, isSuccess = true) => {
@@ -55,12 +56,13 @@
 
         // Function to create a document in Firestore
         const createApplication = async (data) => {
-            if (!userId) {
+            if (!landlordUserId) {
                 showMessageBox("Authentication failed. Please try refreshing the page.", false);
                 return;
             }
             try {
-                const applicationsCollection = collection(db, `artifacts/${appId}/users/${userId}/applications`);
+                // Store all applications under the landlord's user ID
+                const applicationsCollection = collection(db, `artifacts/${appId}/users/${landlordUserId}/applications`);
                 await addDoc(applicationsCollection, {
                     ...data,
                     timestamp: new Date()
@@ -74,12 +76,12 @@
 
         // Function to delete a document from Firestore
         window.deleteApplication = async (docId) => {
-            if (!userId) {
+            if (!landlordUserId) {
                 console.error("User not authenticated.");
                 return;
             }
             try {
-                const docRef = doc(db, `artifacts/${appId}/users/${userId}/applications`, docId);
+                const docRef = doc(db, `artifacts/${appId}/users/${landlordUserId}/applications`, docId);
                 await deleteDoc(docRef);
                 console.log("Document successfully deleted!");
             } catch (e) {
@@ -112,12 +114,12 @@
 
         // Listen for new applications and display them
         const setupRealtimeListener = () => {
-            if (!userId) {
+            if (!landlordUserId) {
                 console.log("User not authenticated, skipping listener setup.");
                 return;
             }
 
-            const applicationsCollection = collection(db, `artifacts/${appId}/users/${userId}/applications`);
+            const applicationsCollection = collection(db, `artifacts/${appId}/users/${landlordUserId}/applications`);
             onSnapshot(applicationsCollection, (snapshot) => {
                 const applicationsList = document.getElementById('applications-list');
                 if (!applicationsList) return;
@@ -167,6 +169,8 @@
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 userId = user.uid;
+                // Assign the user ID to the landlord ID variable so the form knows where to save.
+                landlordUserId = userId;
                 document.getElementById('user-id-display').textContent = `Your User ID: ${userId}`;
                 console.log("User authenticated with UID:", userId);
                 setupRealtimeListener();
